@@ -1,10 +1,11 @@
 from setuptools import setup, find_packages, Extension
 import numpy as np
 import os
+import io
 
-version = "0.1.0"
+version = "1.0.0"
 
-with open("./README.md") as fd:
+with io.open("./README.md", encoding="utf-8") as fd:
     long_description = fd.read()
 
 sitk_align_extension = Extension(
