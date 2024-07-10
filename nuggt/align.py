@@ -32,7 +32,7 @@ if not hasattr(neuroglancer.PointAnnotationLayer, "annotation_color"):
         wrapped_property('annotationColor', optional(text_type))
 
 
-def parse_args():
+def parse_args(raw_args=None):
     parser = argparse.ArgumentParser(description="Neuroglancer Aligner")
     parser.add_argument("--reference-image",
                         help="Path to reference image file",
@@ -117,7 +117,7 @@ def parse_args():
                         default=0,
                        required=False)
     
-    return parser.parse_args()
+    return parser.parse_args(raw_args)
 
 class ViewerPair:
     """The viewer pair maintains two neuroglancer viewers
@@ -803,9 +803,9 @@ void main() {
 
 
 
-def main():
+def main(raw_args=None):
     logging.basicConfig(level=logging.INFO)
-    args = parse_args()
+    args = parse_args(raw_args)
     if args.ip_address is not None and args.port is not None:
         neuroglancer.set_server_bind_address(
             bind_address=args.ip_address,
@@ -831,7 +831,7 @@ def main():
     logging.info("Reading in warped image")
     logging.info(args.warped_zarr)
     if args.warped_zarr is not None:
-        if args.warped_zarr.endswith(".zarr"):
+        if args.warped_zarr.endswith(".zarr") or os.path.isdir(args.warped_zarr):
             warped_zarr = zarr.open(args.warped_zarr, mode = "r")[:]
         else:
             warped_zarr = tifffile.imread(args.warped_zarr)
