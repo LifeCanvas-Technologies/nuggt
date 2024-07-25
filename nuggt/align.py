@@ -38,6 +38,10 @@ def parse_args(raw_args=None):
                         help="Path to reference image file",
                         required=False)
     
+    parser.add_argument('--edge-image',
+                        help="Path to edge image file",
+                        required=False)
+    
     parser.add_argument("--moving-image",
                         help="Path to image file for image to be aligned",
                         required=False)
@@ -138,6 +142,7 @@ class ViewerPair:
     """
 
     REFERENCE = "reference"
+    EDGE = "edge"
     MOVING = "moving"
     ALIGNMENT = "alignment"
     CORRESPONDENCE_POINTS = "correspondence-points"
@@ -147,8 +152,8 @@ class ViewerPair:
 
     ANNOTATE_ACTION = "annotate"
     
-    BRIGHTER_ACTION = "brighter"
-    DIMMER_ACTION = "dimmer"
+    # BRIGHTER_ACTION = "brighter"
+    # DIMMER_ACTION = "dimmer"
     
     CLEAR_ACTION = "clear"
     DONE_ACTION = "done-with-point"
@@ -156,8 +161,8 @@ class ViewerPair:
     NEXT_ACTION = "next"
     PREVIOUS_ACTION = "previous"
     
-    REFERENCE_BRIGHTER_ACTION = "reference-brighter"
-    REFERENCE_DIMMER_ACTION = "reference-dimmer"
+    # REFERENCE_BRIGHTER_ACTION = "reference-brighter"
+    # REFERENCE_DIMMER_ACTION = "reference-dimmer"
     
     
     REFRESH_ACTION = "refresh-view"
@@ -214,7 +219,7 @@ void main() {
     warpers = {}
     alignment_buffers = {}
 
-    def __init__(self, reference_image, moving_image, warped_image, segmentation,
+    def __init__(self, reference_image, edge_image, moving_image, warped_image, segmentation,
                  points_file, reference_voxel_size, moving_voxel_size,
                  n_workers=psutil.cpu_count(logical=False), min_distance=1.0,
                  x_index=2, y_index=1,z_index=0):
@@ -233,6 +238,7 @@ void main() {
         :param n_workers: # of workers to use when warping
         """
         self.reference_image = reference_image
+        self.edge_image = edge_image
 
         # path to moving image 
         if isinstance(moving_image, zarr.core.Array):
@@ -259,6 +265,7 @@ void main() {
         self.reference_voxel_size = reference_voxel_size
         self.moving_voxel_size = moving_voxel_size
         self.reference_brightness = 1.0
+        self.edge_brightness = 1.0
         self.moving_brightness = 1.0
         self.min_distance = min_distance
         self.load_points()
@@ -334,19 +341,19 @@ void main() {
       
         viewer.actions.add(self.ANNOTATE_ACTION, on_annotate)
             
-        viewer.actions.add(self.BRIGHTER_ACTION, self.on_brighter)
+        # viewer.actions.add(self.BRIGHTER_ACTION, self.on_brighter)
     
        
         viewer.actions.add(self.CLEAR_ACTION, self.on_clear)
-        viewer.actions.add(self.DIMMER_ACTION, self.on_dimmer)
+        # viewer.actions.add(self.DIMMER_ACTION, self.on_dimmer)
         viewer.actions.add(self.DONE_ACTION, self.on_done)
         viewer.actions.add(self.EDIT_ACTION, self.on_edit)
         viewer.actions.add(self.NEXT_ACTION, self.on_next)
         viewer.actions.add(self.PREVIOUS_ACTION, self.on_previous)
         
       
-        viewer.actions.add(self.REFERENCE_BRIGHTER_ACTION, self.on_reference_brighter)
-        viewer.actions.add(self.REFERENCE_DIMMER_ACTION,self.on_reference_dimmer) 
+        # viewer.actions.add(self.REFERENCE_BRIGHTER_ACTION, self.on_reference_brighter)
+        # viewer.actions.add(self.REFERENCE_DIMMER_ACTION,self.on_reference_dimmer) 
      
         
        
@@ -360,19 +367,19 @@ void main() {
             viewer.actions.add(self.TRANSLATE_ACTION, self.on_translate)
         with viewer.config_state.txn() as s:
             bindings_viewer = s.input_event_bindings.viewer
-            bindings_viewer[self.BRIGHTER_KEY] = self.BRIGHTER_ACTION
+            # bindings_viewer[self.BRIGHTER_KEY] = self.BRIGHTER_ACTION
             bindings_viewer[self.CLEAR_KEY] = self.CLEAR_ACTION
-            bindings_viewer[self.DIMMER_KEY] = self.DIMMER_ACTION
+            # bindings_viewer[self.DIMMER_KEY] = self.DIMMER_ACTION
             bindings_viewer[self.DONE_KEY] = self.DONE_ACTION
             bindings_viewer[self.EDIT_KEY] = self.EDIT_ACTION
             bindings_viewer[self.NEXT_KEY] = self.NEXT_ACTION
             bindings_viewer[self.PREVIOUS_KEY] = self.PREVIOUS_ACTION
             
-            bindings_viewer[self.REFERENCE_BRIGHTER_KEY] = \
-                self.REFERENCE_BRIGHTER_ACTION
+            # bindings_viewer[self.REFERENCE_BRIGHTER_KEY] = \
+            #     self.REFERENCE_BRIGHTER_ACTION
             
-            bindings_viewer[self.REFERENCE_DIMMER_KEY] = \
-                self.REFERENCE_DIMMER_ACTION
+            # bindings_viewer[self.REFERENCE_DIMMER_KEY] = \
+            #     self.REFERENCE_DIMMER_ACTION
             
             
             bindings_viewer[self.REFRESH_KEY] = self.REFRESH_ACTION
@@ -493,6 +500,9 @@ void main() {
         max_reference_img = soft_max_brightness(self.reference_image)
         if self.reference_image.dtype.kind in ("i", "u"):
             max_reference_img /= np.iinfo(self.reference_image.dtype).max
+        max_edge_img = soft_max_brightness(self.edge_image)
+        if self.edge_image.dtype.kind in ("i", "u"):
+            max_edge_img /= np.iinfo(self.edge_image.dtype).max
         max_moving_img = soft_max_brightness(self.moving_image)
         if hasattr(self, "alignment_image"):
             max_align_img = soft_max_brightness(self.alignment_image)
@@ -505,6 +515,8 @@ void main() {
         with self.reference_viewer.txn() as txn:
             txn.layers[self.REFERENCE].layer.shader = \
                 red_shader % (self.reference_brightness / max_reference_img)
+            txn.layers[self.EDGE].layer.shader = \
+                red_shader % (self.reference_brightness / max_edge_img)
             txn.layers[self.ALIGNMENT].layer.shader = \
                 green_shader % (self.moving_brightness / max_align_img)
         with self.moving_viewer.txn() as txn:
@@ -704,6 +716,9 @@ void main() {
             layer(s, self.REFERENCE, self.reference_image, red_shader,
                   self.reference_brightness,
                   voxel_size=self.reference_voxel_size)
+            layer(s, self.EDGE, self.edge_image, red_shader,
+                  self.reference_brightness,
+                  voxel_size=self.reference_voxel_size)
             layer(s, self.ALIGNMENT, self.alignment_image, green_shader,
                   self.moving_brightness,
                   voxel_size=self.moving_voxel_size)
@@ -820,9 +835,13 @@ def main(raw_args=None):
         [float(_)*1 for _ in args.reference_voxel_size.split(",")]
     moving_voxel_size = \
         [float(_)*1 for _ in args.moving_voxel_size.split(",")]
-        
-    logging.info("Reading reference image")
-    reference_image = tifffile.imread(args.reference_image)
+    
+    if args.reference_image is not None:
+        logging.info("Reading reference image")
+        reference_image = tifffile.imread(args.reference_image)
+    if args.edge_image is not None:
+        logging.info("Reading edge image")
+        edge_image = tifffile.imread(args.edge_image)
     logging.info("Reading moving image")
     if args.moving_image.endswith(".zarr") or os.path.isdir(args.moving_image):
         moving_image = zarr.open(args.moving_image, mode = "r")
@@ -844,7 +863,7 @@ def main(raw_args=None):
     else:
         segmentation = None
 
-    vp = ViewerPair(reference_image, moving_image, warped_zarr, segmentation, args.points,
+    vp = ViewerPair(reference_image, edge_image, moving_image, warped_zarr, segmentation, args.points,
                     reference_voxel_size, moving_voxel_size, n_workers=args.n_workers,  x_index=args.x_index, y_index=args.y_index, z_index=args.z_index)
     
     if not args.no_launch:
