@@ -20,7 +20,7 @@ from pathlib import Path
 
 from nuggt.utils.warp import Warper
 from nuggt.utils.ngutils import layer, seglayer, pointlayer
-from nuggt.utils.ngutils import red_shader, gray_shader, green_shader
+from nuggt.utils.ngutils import gray_shader, green_shader
 from nuggt.utils.ngutils import soft_max_brightness
 from nuggt.warping import warp_image as gpu_warp_image
 
@@ -264,14 +264,14 @@ void main() {
         self.warper = None
         self.reference_voxel_size = reference_voxel_size
         self.moving_voxel_size = moving_voxel_size
-        self.reference_brightness = 1.0
-        self.edge_brightness = 1.0
-        self.moving_brightness = 1.0
+        self.reference_brightness = soft_max_brightness(self.reference_image)
+        self.edge_brightness = 13030
+        self.moving_brightness = soft_max_brightness(self.moving_image)
         self.min_distance = min_distance
         self.load_points()
         self.init_state()
         self.init_warper()
-        self.refresh_brightness()
+        # self.refresh_brightness()
         
       
         self.x_index=x_index
@@ -456,32 +456,32 @@ void main() {
     
         
  
-    def on_brighter(self, s):
-        self.brighter()
+    # def on_brighter(self, s):
+    #     self.brighter()
 
-    def brighter(self):
-        self.moving_brightness *= 1.25
-        self.refresh_brightness()
-    def on_dimmer(self, s):
-        self.dimmer()
+    # def brighter(self):
+    #     self.moving_brightness *= 1.25
+    #     self.refresh_brightness()
+    # def on_dimmer(self, s):
+    #     self.dimmer()
 
-    def dimmer(self):
-        self.moving_brightness = self.moving_brightness / 1.25
-        self.refresh_brightness()
+    # def dimmer(self):
+    #     self.moving_brightness = self.moving_brightness / 1.25
+    #     self.refresh_brightness()
 
-    def on_reference_brighter(self, s):
-        self.reference_brighter()
+    # def on_reference_brighter(self, s):
+    #     self.reference_brighter()
 
-    def reference_brighter(self):
-        self.reference_brightness *= 1.25
-        self.refresh_brightness()
+    # def reference_brighter(self):
+    #     self.reference_brightness *= 1.25
+    #     self.refresh_brightness()
 
-    def on_reference_dimmer(self, s):
-        self.reference_dimmer()
+    # def on_reference_dimmer(self, s):
+    #     self.reference_dimmer()
 
-    def reference_dimmer(self):
-        self.reference_brightness = self.reference_brightness / 1.25
-        self.refresh_brightness()
+    # def reference_dimmer(self):
+    #     self.reference_brightness = self.reference_brightness / 1.25
+    #     self.refresh_brightness()
 
     def on_clear(self, s):
         """Clear the current edit annotation"""
@@ -496,32 +496,32 @@ void main() {
             txn.layers[self.EDIT] = neuroglancer.PointAnnotationLayer(
                 annotation_color=self.EDIT_ANNOTATION_COLOR)
 
-    def refresh_brightness(self):
-        max_reference_img = soft_max_brightness(self.reference_image)
-        if self.reference_image.dtype.kind in ("i", "u"):
-            max_reference_img /= np.iinfo(self.reference_image.dtype).max
-        max_edge_img = soft_max_brightness(self.edge_image)
-        if self.edge_image.dtype.kind in ("i", "u"):
-            max_edge_img /= np.iinfo(self.edge_image.dtype).max
-        max_moving_img = soft_max_brightness(self.moving_image)
-        if hasattr(self, "alignment_image"):
-            max_align_img = soft_max_brightness(self.alignment_image)
-            if self.alignment_image.dtype.kind in ("i", "u"):
-                max_align_img /= np.iinfo(self.moving_image.dtype).max
-        else:
-            max_align_img = max_moving_img
-        if self.moving_image.dtype.kind in ("i", "u"):
-            max_moving_img /= np.iinfo(self.moving_image.dtype).max
-        with self.reference_viewer.txn() as txn:
-            txn.layers[self.REFERENCE].layer.shader = \
-                red_shader % (self.reference_brightness / max_reference_img)
-            txn.layers[self.EDGE].layer.shader = \
-                red_shader % (self.reference_brightness / max_edge_img)
-            txn.layers[self.ALIGNMENT].layer.shader = \
-                green_shader % (self.moving_brightness / max_align_img)
-        with self.moving_viewer.txn() as txn:
-            txn.layers[self.IMAGE].layer.shader = \
-                gray_shader % (self.moving_brightness / max_moving_img)
+    # def refresh_brightness(self):
+        # max_reference_img = soft_max_brightness(self.reference_image)
+        # if self.reference_image.dtype.kind in ("i", "u"):
+        #     max_reference_img /= np.iinfo(self.reference_image.dtype).max
+        # max_edge_img = soft_max_brightness(self.edge_image)
+        # if self.edge_image.dtype.kind in ("i", "u"):
+        #     max_edge_img /= np.iinfo(self.edge_image.dtype).max
+        # max_moving_img = soft_max_brightness(self.moving_image)
+        # if hasattr(self, "alignment_image"):
+        #     max_align_img = soft_max_brightness(self.alignment_image)
+        #     if self.alignment_image.dtype.kind in ("i", "u"):
+        #         max_align_img /= np.iinfo(self.moving_image.dtype).max
+        # else:
+        #     max_align_img = max_moving_img
+        # if self.moving_image.dtype.kind in ("i", "u"):
+        #     max_moving_img /= np.iinfo(self.moving_image.dtype).max
+        # with self.reference_viewer.txn() as txn:
+        #     txn.layers[self.REFERENCE].layer.shader = \
+        #         green_shader % (self.reference_brightness / max_reference_img)
+        #     txn.layers[self.EDGE].layer.shader = \
+        #         green_shader % (self.reference_brightness / max_edge_img)
+        #     txn.layers[self.ALIGNMENT].layer.shader = \
+        #         gray_shader % (self.moving_brightness / max_align_img)
+        # with self.moving_viewer.txn() as txn:
+        #     txn.layers[self.IMAGE].layer.shader = \
+        #         gray_shader % (self.moving_brightness / max_moving_img)
 
 
 
@@ -706,22 +706,22 @@ void main() {
                   units=["µm"],
                   scales=self.moving_voxel_size)
             layer(s, self.IMAGE, self.moving_image, gray_shader,
-                  self.moving_brightness,
-                  voxel_size=self.moving_voxel_size)
+                  voxel_size=self.moving_voxel_size,
+                  contrast_limits = [0,self.moving_brightness])
         with self.reference_viewer.txn() as s:
             s.dimensions = CoordinateSpace(
                   names=["x", "y", "z"],
                   units=["µm"],
                   scales=self.reference_voxel_size)
-            layer(s, self.REFERENCE, self.reference_image, red_shader,
-                  self.reference_brightness,
-                  voxel_size=self.reference_voxel_size)
-            layer(s, self.EDGE, self.edge_image, red_shader,
-                  self.reference_brightness,
-                  voxel_size=self.reference_voxel_size)
-            layer(s, self.ALIGNMENT, self.alignment_image, green_shader,
-                  self.moving_brightness,
-                  voxel_size=self.moving_voxel_size)
+            layer(s, self.REFERENCE, self.reference_image, green_shader,
+                  voxel_size=self.reference_voxel_size,
+                  contrast_limits = [0, self.reference_brightness])
+            layer(s, self.EDGE, self.edge_image, green_shader,
+                  voxel_size=self.reference_voxel_size,
+                  contrast_limits = [0, self.edge_brightness])
+            layer(s, self.ALIGNMENT, self.alignment_image, gray_shader,
+                  voxel_size=self.moving_voxel_size,
+                  contrast_limits = [0, self.moving_brightness])
             if self.segmentation is not None:
                 seglayer(s, self.SEGMENTATION, self.segmentation)
 
@@ -778,8 +778,8 @@ void main() {
             self.align_image()
             with self.reference_viewer.txn() as txn:
                 layer(txn, self.ALIGNMENT, self.alignment_image,
-                      green_shader, 1.0, voxel_size=self.reference_voxel_size),
-            self.refresh_brightness()
+                      gray_shader, voxel_size=self.reference_voxel_size, contrast_limits=[0, self.moving_brightness]),
+            # self.refresh_brightness()
             self.post_message(self.reference_viewer, self.WARP_ACTION,
                     "Warping complete, thank you for your patience.")
         except:

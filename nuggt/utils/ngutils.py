@@ -14,15 +14,22 @@ class Shader:
         self.shader = shader
 
     def __mod__(self, frac):
-        max = frac * 4
-        ctrl = f"# uicontrol float brightness slider(min=0.0,max={max},default={frac})"
+        # max = frac * 4
+        # ctrl = f"# uicontrol float brightness slider(min=0.0,max={max},default={frac})"
+        ctrl = f"#uicontrol invlerp normalized"
         return "\n".join([ctrl, self.shader])
 
 
 """A shader that displays an image as gray in Neuroglancer"""
+# gray_shader = Shader("""
+# void main() {
+#    emitGrayscale(brightness * toNormalized(getDataValue()));
+# }
+# """)
+
 gray_shader = Shader("""
 void main() {
-   emitGrayscale(brightness * toNormalized(getDataValue()));
+   emitGrayscale(normalized());
 }
 """)
 
@@ -34,9 +41,14 @@ void main() {
 """)
 
 """A shader that displays an image in green in Neuroglancer"""
+# green_shader = Shader("""
+# void main() {
+#    emitRGB(vec3(0, brightness * toNormalized(getDataValue()), 0));
+# }
+# """)
 green_shader = Shader("""
 void main() {
-   emitRGB(vec3(0, brightness * toNormalized(getDataValue()), 0));
+   emitRGB(vec3(0, normalized(), 0));
 }
 """)
 
@@ -123,16 +135,16 @@ def reverse_dimensions(img):
     return img
 
 
-def layer(txn, name, img, shader=None, multiplier=1.0, 
+def layer(txn, name, img, shader=None, 
           dimensions=None, offx=0, offy=0, offz=0,
-          voxel_size=default_voxel_size):
+          voxel_size=default_voxel_size,
+          contrast_limits = None):
     """Add an image layer to Neuroglancer
 
     :param txn: The transaction context of the viewer.
     :param name: The name of the layer as displayed in Neuroglancer.
     :param img: The image to display in TCZYX order.
     :param shader: the shader to use when displaying, e.g. gray_shader
-    :param multiplier: the multiplier to apply to the normalized data value.
     This can be used to brighten or dim the image.
     """
 
@@ -157,7 +169,11 @@ def layer(txn, name, img, shader=None, multiplier=1.0,
 
     shader = shader or gray_shader
 
-    txn.layers[name] = neuroglancer.ImageLayer(source=source, shader=shader % multiplier)
+    if contrast_limits is not None:
+        shader_controls = {"normalized" : {"range" : list(contrast_limits)}}
+        txn.layers[name] = neuroglancer.ImageLayer(source=source, shader=shader % 1.0, shaderControls=shader_controls)
+    else:
+        txn.layers[name] = neuroglancer.ImageLayer(source=source, shader=shader % 1.0)
 #    txn.layers.append(
 #        name=name,
 #        layer=neuroglancer.ImageLayer(
