@@ -138,7 +138,9 @@ def reverse_dimensions(img):
 def layer(txn, name, img, shader=None, 
           dimensions=None, offx=0, offy=0, offz=0,
           voxel_size=default_voxel_size,
-          contrast_limits = None):
+          contrast_limits = None,
+          blend = "additive",
+          opacity = 0.5):
     """Add an image layer to Neuroglancer
 
     :param txn: The transaction context of the viewer.
@@ -171,9 +173,9 @@ def layer(txn, name, img, shader=None,
 
     if contrast_limits is not None:
         shader_controls = {"normalized" : {"range" : list(contrast_limits)}}
-        txn.layers[name] = neuroglancer.ImageLayer(source=source, shader=shader % 1.0, shaderControls=shader_controls)
+        txn.layers[name] = neuroglancer.ImageLayer(source=source, shader=shader % 1.0, shaderControls=shader_controls, blend=blend, opacity=opacity)
     else:
-        txn.layers[name] = neuroglancer.ImageLayer(source=source, shader=shader % 1.0)
+        txn.layers[name] = neuroglancer.ImageLayer(source=source, shader=shader % 1.0, blend=blend, opacity=opacity)
 #    txn.layers.append(
 #        name=name,
 #        layer=neuroglancer.ImageLayer(
