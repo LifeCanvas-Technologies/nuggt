@@ -264,9 +264,9 @@ void main() {
         self.warper = None
         self.reference_voxel_size = reference_voxel_size
         self.moving_voxel_size = moving_voxel_size
-        self.reference_brightness = soft_max_brightness(self.reference_image)
+        self.reference_brightness = soft_max_brightness(self.reference_image, percentile=99.5)
         self.edge_brightness = 13030
-        self.moving_brightness = soft_max_brightness(self.moving_image)
+        self.moving_brightness = soft_max_brightness(self.moving_image, percentile=99.5)
         self.min_distance = min_distance
         self.load_points()
         self.init_state()
