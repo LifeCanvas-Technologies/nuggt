@@ -720,7 +720,7 @@ void main() {
                   voxel_size=self.reference_voxel_size,
                   contrast_limits = [0, self.edge_brightness])
             layer(s, self.ALIGNMENT, self.alignment_image, gray_shader,
-                  voxel_size=self.moving_voxel_size,
+                  voxel_size=self.reference_voxel_size,
                   contrast_limits = [0, self.moving_brightness])
             if self.segmentation is not None:
                 seglayer(s, self.SEGMENTATION, self.segmentation)
@@ -790,7 +790,7 @@ void main() {
     def align_image(self):
         """Warp the moving image into the reference image's space"""
         self.init_warper() # reinitialize based on the points 
-        warp_path = Path(self.points_file).parent.parent / "registered_manual.zarr"
+        warp_path = Path(self.points_file).parent / "registered_manual.zarr"
         gpu_warp_image(
             moving_zarr=self.moving_image_zarr,
             warped_zarr_path=str(warp_path),

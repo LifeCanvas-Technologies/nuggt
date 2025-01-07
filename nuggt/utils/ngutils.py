@@ -162,7 +162,7 @@ def layer(txn, name, img, shader=None,
             dimensions = neuroglancer.CoordinateSpace(
                 names=dim_names,
                 units=dim_units,
-                scales=dim_scales)
+                scales=voxel_size)
 
         source = neuroglancer.LocalVolume(
                     data=reverse_dimensions(img),
@@ -205,7 +205,7 @@ def seglayer(txn, name, seg,
             dimensions = neuroglancer.CoordinateSpace(
                 names=dim_names,
                 units=dim_units,
-                scales=dim_scales)
+                scales=voxel_size)
 
         source = neuroglancer.LocalVolume(
             data=reverse_dimensions(seg.astype(np.uint16)),
