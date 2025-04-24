@@ -800,7 +800,7 @@ void main() {
             moving_voxel_size=(1,1,1),
             fixed_voxel_size=(1,1,1),
             grid_spacing=(32,32,32),
-            num_workers = self.n_workers
+            num_workers = None
         )
 
         self.alignment_image = zarr.open(str(warp_path))[:]
