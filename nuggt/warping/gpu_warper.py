@@ -376,7 +376,7 @@ class ZarrWarper:
                                           [0,self.fixed_img_size[1]],
                                           [0,self.fixed_img_size[2]],
                                           self.chunks)
-                if num_workers is None:
+                if num_workers is None or num_workers == 1:
                     for coord in tqdm(coords, total=len(coords)):
                         coord = np.asarray(coord)
                         self._warp_chunk(chunk_values, coord, zrange=None)
