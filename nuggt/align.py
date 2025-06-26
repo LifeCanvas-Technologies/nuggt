@@ -34,8 +34,9 @@ if not hasattr(neuroglancer.PointAnnotationLayer, "annotation_color"):
 
 def parse_args(raw_args=None):
     parser = argparse.ArgumentParser(description="Neuroglancer Aligner")
-    parser.add_argument("--reference-image",
-                        help="Path to reference image file",
+    parser.add_argument("--reference-images",
+                        help="Paths to reference image files. Is a list of paths to zarrs or tiffs and can be arbitrarily long.",
+                        nargs='+',
                         required=False)
     
     parser.add_argument('--edge-image',
@@ -219,7 +220,7 @@ void main() {
     warpers = {}
     alignment_buffers = {}
 
-    def __init__(self, reference_image, edge_image, moving_image, warped_image, segmentation,
+    def __init__(self, reference_images, edge_image, moving_image, warped_image, segmentation,
                  points_file, reference_voxel_size, moving_voxel_size,
                  n_workers=psutil.cpu_count(logical=False), min_distance=1.0,
                  x_index=2, y_index=1,z_index=0):
@@ -237,8 +238,17 @@ void main() {
         :param min_distance: the minimum allowed distance between any two points
         :param n_workers: # of workers to use when warping
         """
-        self.reference_image = reference_image
+        self.reference_images = reference_images
         self.edge_image = edge_image
+
+        if self.edge_image is None:
+            if self.reference_images is not None:
+                self.reference_shape = self.reference_images[0].shape
+            else:
+                raise ValueError("Either edge_image or reference_images must be provided")
+        elif self.reference_images is None:
+            self.reference_shape = self.edge_image.shape
+
 
         # path to moving image 
         if isinstance(moving_image, zarr.core.Array):
@@ -257,14 +267,13 @@ void main() {
         self.segmentation = segmentation
         self.n_workers = n_workers
         self.moving_images[id(self)] = moving_image
-        self.decimation = max(1, np.min(reference_image.shape) // 5)
+        self.decimation = max(1, np.min(self.reference_shape) // 5)
         self.reference_viewer = neuroglancer.Viewer()
         self.moving_viewer = neuroglancer.Viewer()
         self.points_file = points_file
         self.warper = None
         self.reference_voxel_size = reference_voxel_size
         self.moving_voxel_size = moving_voxel_size
-        self.reference_brightness = soft_max_brightness(self.reference_image, percentile=99.5)
         self.edge_brightness = 13030
         self.moving_brightness = soft_max_brightness(self.moving_image, percentile=99.5)
         self.min_distance = min_distance
@@ -316,7 +325,7 @@ void main() {
         self.warper = Warper(self.reference_pts, self.moving_pts)
         inputs = [
             np.arange(0,
-                      self.reference_image.shape[_]+ self.decimation - 1,
+                      self.reference_shape[_]+ self.decimation - 1,
                       self.decimation)
             for _ in range(3)]
         self.warper = self.warper.approximate(*inputs)
@@ -453,35 +462,6 @@ void main() {
                 points=[point.tolist()],
                 annotation_color=self.EDIT_ANNOTATION_COLOR)
             txn.layers[self.EDIT] = layer
-    
-        
- 
-    # def on_brighter(self, s):
-    #     self.brighter()
-
-    # def brighter(self):
-    #     self.moving_brightness *= 1.25
-    #     self.refresh_brightness()
-    # def on_dimmer(self, s):
-    #     self.dimmer()
-
-    # def dimmer(self):
-    #     self.moving_brightness = self.moving_brightness / 1.25
-    #     self.refresh_brightness()
-
-    # def on_reference_brighter(self, s):
-    #     self.reference_brighter()
-
-    # def reference_brighter(self):
-    #     self.reference_brightness *= 1.25
-    #     self.refresh_brightness()
-
-    # def on_reference_dimmer(self, s):
-    #     self.reference_dimmer()
-
-    # def reference_dimmer(self):
-    #     self.reference_brightness = self.reference_brightness / 1.25
-    #     self.refresh_brightness()
 
     def on_clear(self, s):
         """Clear the current edit annotation"""
@@ -495,35 +475,6 @@ void main() {
         with self.moving_viewer.txn() as txn:
             txn.layers[self.EDIT] = neuroglancer.PointAnnotationLayer(
                 annotation_color=self.EDIT_ANNOTATION_COLOR)
-
-    # def refresh_brightness(self):
-        # max_reference_img = soft_max_brightness(self.reference_image)
-        # if self.reference_image.dtype.kind in ("i", "u"):
-        #     max_reference_img /= np.iinfo(self.reference_image.dtype).max
-        # max_edge_img = soft_max_brightness(self.edge_image)
-        # if self.edge_image.dtype.kind in ("i", "u"):
-        #     max_edge_img /= np.iinfo(self.edge_image.dtype).max
-        # max_moving_img = soft_max_brightness(self.moving_image)
-        # if hasattr(self, "alignment_image"):
-        #     max_align_img = soft_max_brightness(self.alignment_image)
-        #     if self.alignment_image.dtype.kind in ("i", "u"):
-        #         max_align_img /= np.iinfo(self.moving_image.dtype).max
-        # else:
-        #     max_align_img = max_moving_img
-        # if self.moving_image.dtype.kind in ("i", "u"):
-        #     max_moving_img /= np.iinfo(self.moving_image.dtype).max
-        # with self.reference_viewer.txn() as txn:
-        #     txn.layers[self.REFERENCE].layer.shader = \
-        #         green_shader % (self.reference_brightness / max_reference_img)
-        #     txn.layers[self.EDGE].layer.shader = \
-        #         green_shader % (self.reference_brightness / max_edge_img)
-        #     txn.layers[self.ALIGNMENT].layer.shader = \
-        #         gray_shader % (self.moving_brightness / max_align_img)
-        # with self.moving_viewer.txn() as txn:
-        #     txn.layers[self.IMAGE].layer.shader = \
-        #         gray_shader % (self.moving_brightness / max_moving_img)
-
-
 
     def on_edit(self, s):
         """Transfer the currently selected point to the edit annotation"""
@@ -713,12 +664,18 @@ void main() {
                   names=["x", "y", "z"],
                   units=["µm"],
                   scales=self.reference_voxel_size)
-            layer(s, self.REFERENCE, self.reference_image, green_shader,
-                  voxel_size=self.reference_voxel_size,
-                  contrast_limits = [0, self.reference_brightness])
-            layer(s, self.EDGE, self.edge_image, green_shader,
-                  voxel_size=self.reference_voxel_size,
-                  contrast_limits = [0, self.edge_brightness])
+            if self.reference_images is not None:
+                for i, reference_image in enumerate(self.reference_images):
+                    layer(s, f"{self.REFERENCE}_{i}", reference_image, green_shader,
+                          voxel_size=self.reference_voxel_size,
+                          contrast_limits = [0, soft_max_brightness(reference_image, percentile=99.5)])
+                # layer(s, self.REFERENCE, self.reference_image, green_shader,
+                #     voxel_size=self.reference_voxel_size,
+                #     contrast_limits = [0, self.reference_brightness])
+            if self.edge_image is not None:
+                layer(s, self.EDGE, self.edge_image, green_shader,
+                    voxel_size=self.reference_voxel_size,
+                    contrast_limits = [0, self.edge_brightness])
             layer(s, self.ALIGNMENT, self.alignment_image, gray_shader,
                   voxel_size=self.reference_voxel_size,
                   contrast_limits = [0, self.moving_brightness])
@@ -796,7 +753,7 @@ void main() {
             warped_zarr_path=str(warp_path),
             fixed_pts=self.reference_pts,
             moving_pts=self.moving_pts,
-            fixed_img_size=self.reference_image.shape,
+            fixed_img_size=self.reference_shape,
             moving_voxel_size=(1,1,1),
             fixed_voxel_size=(1,1,1),
             grid_spacing=(32,32,32),
@@ -836,12 +793,22 @@ def main(raw_args=None):
     moving_voxel_size = \
         [float(_)*1 for _ in args.moving_voxel_size.split(",")]
     
-    if args.reference_image is not None:
-        logging.info("Reading reference image")
-        reference_image = tifffile.imread(args.reference_image)
+    if args.reference_images is not None:
+        logging.info("Reading reference images")
+        reference_images = []
+        for ref_img_path in args.reference_images:
+            if ref_img_path.endswith(".zarr") or os.path.isdir(ref_img_path):
+                reference_image = zarr.open(ref_img_path, mode = "r")
+            else:
+                reference_image = tifffile.imread(ref_img_path)
+            reference_images.append(reference_image)
+    else:
+        reference_images = None
     if args.edge_image is not None:
         logging.info("Reading edge image")
         edge_image = tifffile.imread(args.edge_image)
+    else:
+        edge_image = None
     logging.info("Reading moving image")
     if args.moving_image.endswith(".zarr") or os.path.isdir(args.moving_image):
         moving_image = zarr.open(args.moving_image, mode = "r")
@@ -863,7 +830,7 @@ def main(raw_args=None):
     else:
         segmentation = None
 
-    vp = ViewerPair(reference_image, edge_image, moving_image, warped_zarr, segmentation, args.points,
+    vp = ViewerPair(reference_images, edge_image, moving_image, warped_zarr, segmentation, args.points,
                     reference_voxel_size, moving_voxel_size, n_workers=args.n_workers,  x_index=args.x_index, y_index=args.y_index, z_index=args.z_index)
     
     if not args.no_launch:
