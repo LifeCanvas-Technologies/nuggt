@@ -248,6 +248,8 @@ void main() {
                 raise ValueError("Either edge_image or reference_images must be provided")
         elif self.reference_images is None:
             self.reference_shape = self.edge_image.shape
+        else:
+            self.reference_shape = self.reference_images[0].shape
 
 
         # path to moving image 
