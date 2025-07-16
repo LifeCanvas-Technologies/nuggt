@@ -21,7 +21,7 @@ from pathlib import Path
 from nuggt.utils.warp import Warper
 from nuggt.utils.ngutils import layer, seglayer, pointlayer
 from nuggt.utils.ngutils import gray_shader, green_shader
-from nuggt.utils.ngutils import soft_max_brightness
+from nuggt.utils.ngutils import soft_max_brightness, get_contrast_limits
 from nuggt.warping import warp_image as gpu_warp_image
 
 # Monkey-patch neuroglancer.PointAnnotationLayer to have a color
@@ -246,9 +246,12 @@ void main() {
                 self.reference_shape = self.reference_images[0].shape
             else:
                 raise ValueError("Either edge_image or reference_images must be provided")
-        elif self.reference_images is None:
-            self.reference_shape = self.edge_image.shape
-
+        else:
+            try:
+                self.reference_shape = self.edge_image.shape
+            except:
+                self.reference_shape = None
+                raise ValueError("Either edge_image or reference_images must be provided")
 
         # path to moving image 
         if isinstance(moving_image, zarr.core.Array):
@@ -275,7 +278,7 @@ void main() {
         self.reference_voxel_size = reference_voxel_size
         self.moving_voxel_size = moving_voxel_size
         self.edge_brightness = 13030
-        self.moving_brightness = soft_max_brightness(self.moving_image, percentile=99.5)
+        self.moving_brightness = soft_max_brightness(self.moving_image, percentile=99)
         self.min_distance = min_distance
         self.load_points()
         self.init_state()
@@ -656,9 +659,16 @@ void main() {
                   names=["x", "y", "z"],
                   units=["µm"],
                   scales=self.moving_voxel_size)
+            
+            # Try to preserve current contrast limits
+            try:
+                layer_obj = self.moving_viewer.state.layers[self.IMAGE]
+                old_limits = get_contrast_limits(layer_obj)
+            except:
+                old_limits = [0, self.moving_brightness]
             layer(s, self.IMAGE, self.moving_image, gray_shader,
                   voxel_size=self.moving_voxel_size,
-                  contrast_limits = [0,self.moving_brightness])
+                  contrast_limits = old_limits)
         with self.reference_viewer.txn() as s:
             s.dimensions = CoordinateSpace(
                   names=["x", "y", "z"],
@@ -666,19 +676,36 @@ void main() {
                   scales=self.reference_voxel_size)
             if self.reference_images is not None:
                 for i, reference_image in enumerate(self.reference_images):
+                    key = f"{self.REFERENCE}_{i}"
+                    try:
+                        layer_obj = self.reference_viewer.state.layers[key]
+                        old_limits = get_contrast_limits(layer_obj)
+                    except:
+                        old_limits = [0, soft_max_brightness(reference_image, percentile=99)]
                     layer(s, f"{self.REFERENCE}_{i}", reference_image, green_shader,
                           voxel_size=self.reference_voxel_size,
-                          contrast_limits = [0, soft_max_brightness(reference_image, percentile=99.5)])
-                # layer(s, self.REFERENCE, self.reference_image, green_shader,
-                #     voxel_size=self.reference_voxel_size,
-                #     contrast_limits = [0, self.reference_brightness])
+                          contrast_limits = old_limits)
+                    
             if self.edge_image is not None:
+                # try:
+                #     layer_obj = self.reference_viewer.state.layers[self.EDGE]
+                #     old_limits = get_contrast_limits(layer_obj)
+                # except:
+                #     old_limits = [0, self.edge_brightness]
                 layer(s, self.EDGE, self.edge_image, green_shader,
                     voxel_size=self.reference_voxel_size,
                     contrast_limits = [0, self.edge_brightness])
+            
+            # Preserve old limits
+            try:
+                layer_obj = self.reference_viewer.state.layers[self.ALIGNMENT]
+                old_align_limits = get_contrast_limits(layer_obj)
+            except Exception as e:
+                print(e)
+                old_align_limits = [0, self.moving_brightness]
             layer(s, self.ALIGNMENT, self.alignment_image, gray_shader,
                   voxel_size=self.reference_voxel_size,
-                  contrast_limits = [0, self.moving_brightness])
+                  contrast_limits = old_align_limits)
             if self.segmentation is not None:
                 seglayer(s, self.SEGMENTATION, self.segmentation)
 
@@ -733,9 +760,16 @@ void main() {
         try:
             self.post_message(self.reference_viewer, self.WARP_ACTION, "Warping alignment image to reference... (patience please)")
             self.align_image()
+            # Preserve old limits
+            try:
+                layer_obj = self.reference_viewer.state.layers[self.ALIGNMENT]
+                old_align_limits = get_contrast_limits(layer_obj)
+            except Exception as e:
+                print(e)
+                old_align_limits = [0, self.moving_brightness]
             with self.reference_viewer.txn() as txn:
                 layer(txn, self.ALIGNMENT, self.alignment_image,
-                      gray_shader, voxel_size=self.reference_voxel_size, contrast_limits=[0, self.moving_brightness]),
+                      gray_shader, voxel_size=self.reference_voxel_size, contrast_limits=old_align_limits),
             # self.refresh_brightness()
             self.post_message(self.reference_viewer, self.WARP_ACTION,
                     "Warping complete, thank you for your patience.")
