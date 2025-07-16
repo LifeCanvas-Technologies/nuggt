@@ -246,12 +246,11 @@ void main() {
                 self.reference_shape = self.reference_images[0].shape
             else:
                 raise ValueError("Either edge_image or reference_images must be provided")
+        elif self.reference_images is None:
+            self.reference_shape = self.edge_image.shape
         else:
-            try:
-                self.reference_shape = self.edge_image.shape
-            except:
-                self.reference_shape = None
-                raise ValueError("Either edge_image or reference_images must be provided")
+            self.reference_shape = self.reference_images[0].shape
+
 
         # path to moving image 
         if isinstance(moving_image, zarr.core.Array):
