@@ -331,4 +331,11 @@ def get_source_voxel_size(url: str) -> typing.Tuple[float, float, float]:
     info = response.json()
     return tuple([_ / 1000 for _ in info["scales"][0]["resolution"]])
 
-
+def get_contrast_limits(layer_object):
+    """
+    Gets the contrast limits of a given image layer
+    """
+    
+    layer_json = layer_object.to_json()
+    old_align_limits = layer_json["shaderControls"]["normalized"]["range"]
+    return old_align_limits
