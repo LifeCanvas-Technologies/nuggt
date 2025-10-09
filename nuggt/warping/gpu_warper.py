@@ -334,7 +334,7 @@ class ZarrWarper:
                                       [0,self.fixed_img_size[2]],
                                       self.chunks)
             
-            if num_workers is None:
+            if num_workers is None or num_workers == 1:
                 for coord in tqdm(coords, total=len(coords)):
                     coord = np.asarray(coord)
                     self._warp_chunk(values, coord, zrange=None)
@@ -376,7 +376,7 @@ class ZarrWarper:
                                           [0,self.fixed_img_size[1]],
                                           [0,self.fixed_img_size[2]],
                                           self.chunks)
-                if num_workers is None or num_workers == 1:
+                if num_workers is None:
                     for coord in tqdm(coords, total=len(coords)):
                         coord = np.asarray(coord)
                         self._warp_chunk(chunk_values, coord, zrange=None)
@@ -391,9 +391,9 @@ class ZarrWarper:
         Use Thin Plate Splines to warp image.
         '''
         if not isinstance(self.grid_values_path, np.ndarray):
-            if self.grid_values_path == '' or not os.path.exists(self.grid_values_path):
+            if self.grid_values_path is None or self.grid_values_path == '' or not os.path.exists(self.grid_values_path):
                 grid_values = self._warp_grid(grid_spacing, smooth)
-                if self.grid_values_path is not None:
+                if self.grid_values_path != "" or self.grid_values_path is None:
                     np.save(self.grid_values_path, grid_values)
             else:
                 print("Grid values already exist at {}. Loading...".format(self.grid_values_path))
