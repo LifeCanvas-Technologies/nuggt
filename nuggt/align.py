@@ -23,6 +23,8 @@ from nuggt.utils.ngutils import layer, seglayer, pointlayer
 from nuggt.utils.ngutils import gray_shader, green_shader
 from nuggt.utils.ngutils import soft_max_brightness, get_contrast_limits
 from nuggt.warping import warp_image as gpu_warp_image
+from nuggt.warping.warper import Warper as SparseWarper
+from scipy.interpolate import RegularGridInterpolator
 
 # Monkey-patch neuroglancer.PointAnnotationLayer to have a color
 
@@ -59,6 +61,10 @@ def parse_args(raw_args=None):
     parser.add_argument("--points",
                         help="Path to point-correspondence file for moving image",
                         required=False)
+
+    parser.add_argument("--points-full",
+                        help="Path to dense grid point-correspondence file used for warping",
+                        required=True)
     
     parser.add_argument("--no-launch",
                         help="Don't launch browsers on startup",
@@ -223,7 +229,9 @@ void main() {
     def __init__(self, reference_images, edge_image, moving_image, warped_image, segmentation,
                  points_file, reference_voxel_size, moving_voxel_size,
                  n_workers=psutil.cpu_count(logical=False), min_distance=1.0,
-                 x_index=2, y_index=1,z_index=0):
+                 x_index=2, y_index=1, z_index=0, dense_grid_points_file=None):
+        if dense_grid_points_file is None:
+            raise ValueError("--points-full is required")
         
         """Constructor
 
@@ -273,6 +281,9 @@ void main() {
         self.reference_viewer = neuroglancer.Viewer()
         self.moving_viewer = neuroglancer.Viewer()
         self.points_file = points_file
+        self.dense_grid_points_file = dense_grid_points_file
+        p = Path(dense_grid_points_file)
+        self.dense_grid_points_file_corrected = str(p.parent / (p.stem + "_corrected" + p.suffix))
         self.warper = None
         self.reference_voxel_size = reference_voxel_size
         self.moving_voxel_size = moving_voxel_size
@@ -280,6 +291,7 @@ void main() {
         self.moving_brightness = soft_max_brightness(self.moving_image, percentile=99)
         self.min_distance = min_distance
         self.load_points()
+        self.load_dense_grid_points()
         self.init_state()
         self.init_warper()
         # self.refresh_brightness()
@@ -301,13 +313,57 @@ void main() {
             self.reference_pts = d[self.REFERENCE]
             self.moving_pts = d[self.MOVING]
 
+    def load_dense_grid_points(self):
+        """Load dense grid reference/moving points from the dense grid points file"""
+        with open(self.dense_grid_points_file, "r") as fd:
+            d = json.load(fd)
+        self.dense_grid_ref_pts = d[self.REFERENCE]
+        self.dense_grid_mov_pts_original = d[self.MOVING]
+        # Use the corrected file if it exists, otherwise fall back to original
+        if os.path.exists(self.dense_grid_points_file_corrected):
+            with open(self.dense_grid_points_file_corrected, "r") as fd:
+                dc = json.load(fd)
+            self.dense_grid_mov_pts = dc[self.MOVING]
+        else:
+            self.dense_grid_mov_pts = list(self.dense_grid_mov_pts_original)
+
     def save_points(self):
         """Save reference / moving points to the points file"""
         with open(self.points_file, "w") as fd:
             json.dump({
                 self.REFERENCE: self.reference_pts,
-                self.MOVING:self.moving_pts
-            }, fd, indent= 2)
+                self.MOVING: self.moving_pts
+            }, fd, indent=2)
+        if len(self.dense_grid_ref_pts) > 0 and len(self.reference_pts) > 0:
+            auto_ref = np.array(self.dense_grid_ref_pts)
+            auto_mov = np.array(self.dense_grid_mov_pts_original)  # always from original
+            manual_ref = np.array(self.reference_pts)
+            manual_mov = np.array(self.moving_pts)
+
+            # Infer the regular grid axes from the dense ref points
+            zs = np.unique(auto_ref[:, 0])
+            ys = np.unique(auto_ref[:, 1])
+            xs = np.unique(auto_ref[:, 2])
+            grid_shape = (len(zs), len(ys), len(xs))
+
+            # Predict where manual ref points land using the dense grid (no RBF needed)
+            corrected_mov = auto_mov.copy()
+            for dim in range(3):
+                interp = RegularGridInterpolator(
+                    (zs, ys, xs), auto_mov[:, dim].reshape(grid_shape),
+                    bounds_error=False, fill_value=None)
+                manual_mov_predicted = interp(manual_ref)
+                corrections = manual_mov[:, dim] - manual_mov_predicted
+                # Sparse RBF only on the few manual points
+                correction_warper = SparseWarper(manual_ref, corrections[:, np.newaxis], smooth=2)
+                corrected_mov[:, dim] += correction_warper.transform(auto_ref)[:, 0]
+
+            self.dense_grid_mov_pts = corrected_mov.tolist()
+            with open(self.dense_grid_points_file_corrected, "w") as fd:
+                json.dump({
+                    self.REFERENCE: self.dense_grid_ref_pts,
+                    self.MOVING: self.dense_grid_mov_pts
+                }, fd, indent=2)
 
 
     def init_state(self):
@@ -779,19 +835,44 @@ void main() {
 
     def align_image(self):
         """Warp the moving image into the reference image's space"""
-        self.init_warper() # reinitialize based on the points 
+        self.save_points() # Make sure we save the points (and update the dense grid points) before warping
+        self.init_warper() # reinitialize based on the points
         warp_path = Path(self.points_file).parent / "registered_manual.zarr"
-        gpu_warp_image(
-            moving_zarr=self.moving_image_zarr,
-            warped_zarr_path=str(warp_path),
-            fixed_pts=self.reference_pts,
-            moving_pts=self.moving_pts,
-            fixed_img_size=self.reference_shape,
-            moving_voxel_size=(1,1,1),
-            fixed_voxel_size=(1,1,1),
-            grid_spacing=(32,32,32),
-            num_workers = None
-        )
+        if len(self.dense_grid_ref_pts) > 0:
+            # Reconstruct grid_values directly from the dense points — no RBF fitting needed
+            auto_ref = np.array(self.dense_grid_ref_pts)
+            auto_mov = np.array(self.dense_grid_mov_pts)
+            zs = np.unique(auto_ref[:, 0])
+            ys = np.unique(auto_ref[:, 1])
+            xs = np.unique(auto_ref[:, 2])
+            grid_shape = (len(zs), len(ys), len(xs))
+            grid_values = np.expand_dims(np.expand_dims(
+                np.array([auto_mov[:, dim].reshape(grid_shape) for dim in range(3)]),
+                1), 1)  # shape: (3, 1, 1, Z, Y, X)
+            gpu_warp_image(
+                moving_zarr=self.moving_image_zarr,
+                warped_zarr_path=str(warp_path),
+                fixed_pts=self.reference_pts,
+                moving_pts=self.moving_pts,
+                fixed_img_size=self.reference_shape,
+                moving_voxel_size=(1,1,1),
+                fixed_voxel_size=(1,1,1),
+                grid_spacing=(32,32,32),
+                num_workers=None,
+                grid_values_path=grid_values
+            )
+        else:
+            gpu_warp_image(
+                moving_zarr=self.moving_image_zarr,
+                warped_zarr_path=str(warp_path),
+                fixed_pts=self.reference_pts,
+                moving_pts=self.moving_pts,
+                fixed_img_size=self.reference_shape,
+                moving_voxel_size=(1,1,1),
+                fixed_voxel_size=(1,1,1),
+                grid_spacing=(32,32,32),
+                num_workers=None
+            )
 
         self.alignment_image = zarr.open(str(warp_path))[:]
 
@@ -864,7 +945,9 @@ def main(raw_args=None):
         segmentation = None
 
     vp = ViewerPair(reference_images, edge_image, moving_image, warped_zarr, segmentation, args.points,
-                    reference_voxel_size, moving_voxel_size, n_workers=args.n_workers,  x_index=args.x_index, y_index=args.y_index, z_index=args.z_index)
+                    reference_voxel_size, moving_voxel_size, n_workers=args.n_workers,
+                    x_index=args.x_index, y_index=args.y_index, z_index=args.z_index,
+                    dense_grid_points_file=args.points_full)
     
     if not args.no_launch:
         vp.launch_viewers()
