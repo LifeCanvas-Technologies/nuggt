@@ -380,7 +380,7 @@ void main() {
     
     def init_warper(self):
         """Initialize the warper"""
-        self.warper = Warper(self.reference_pts, self.moving_pts)
+        self.warper = Warper(self.dense_grid_ref_pts, self.dense_grid_mov_pts)
         inputs = [
             np.arange(0,
                       self.reference_shape[_]+ self.decimation - 1,
