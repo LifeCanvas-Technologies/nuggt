@@ -858,7 +858,7 @@ void main() {
                 moving_voxel_size=(1,1,1),
                 fixed_voxel_size=(1,1,1),
                 grid_spacing=(32,32,32),
-                num_workers=None,
+                num_workers=psutil.cpu_count(logical=False),
                 grid_values_path=grid_values
             )
         else:
@@ -871,7 +871,7 @@ void main() {
                 moving_voxel_size=(1,1,1),
                 fixed_voxel_size=(1,1,1),
                 grid_spacing=(32,32,32),
-                num_workers=None
+                num_workers=psutil.cpu_count(logical=False)
             )
 
         self.alignment_image = zarr.open(str(warp_path))[:]

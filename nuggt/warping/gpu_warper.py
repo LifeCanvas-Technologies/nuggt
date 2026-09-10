@@ -9,6 +9,7 @@ import psutil
 from functools import partial 
 import os 
 import bisect
+from concurrent.futures import ThreadPoolExecutor
 
 
 from .utils import get_chunk_coords
@@ -340,8 +341,10 @@ class ZarrWarper:
                     self._warp_chunk(values, coord, zrange=None)
             else:
                 fxn = partial(self._warp_chunk, values, zrange=None)
-                with mp.Pool(num_workers) as pool:
-                    list(tqdm(pool.imap(fxn, coords), total=len(coords)))
+                with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                    list(tqdm(executor.map(fxn, coords), total=len(coords)))
+                # with mp.Pool(num_workers) as pool:
+                #     list(tqdm(pool.imap(fxn, coords), total=len(coords)))
             print("Done!")
         else:
             print("Moving image is too large to fit into memory, warping in large chunks...")
@@ -382,8 +385,10 @@ class ZarrWarper:
                         self._warp_chunk(chunk_values, coord, zrange=None)
                 else:
                     fxn = partial(self._warp_chunk, chunk_values, zrange=None)
-                    with mp.Pool(num_workers) as pool:
-                        list(tqdm(pool.imap(fxn, coords), total=len(coords)))
+                    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                        list(tqdm(executor.map(fxn, coords), total=len(coords)))
+                    # with mp.Pool(num_workers) as pool:
+                    #     list(tqdm(pool.imap(fxn, coords), total=len(coords)))
             print("Done")
  
     def warp(self, grid_spacing, smooth=2, num_workers=None):
